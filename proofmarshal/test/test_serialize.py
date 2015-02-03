@@ -47,3 +47,22 @@ class Test_FixedBytes(unittest.TestCase):
         T(b'a', b'a')
         T(b'ab', b'ab')
         T(b'abc', b'abc')
+
+class FooSerializable(Serializable):
+    HASH_HMAC_KEY = b'\x00'*16
+
+    SERIALIZED_ATTRS = [('n', UInt8)]
+
+class Test_Serializable(unittest.TestCase):
+    def test_immutable(self):
+        """Serializable instances are immutable"""
+        f = FooSerializable(n=0)
+
+        with self.assertRaises(TypeError):
+            f.n = 10
+        with self.assertRaises(TypeError):
+            del f.n
+
+    def test_serialization(self):
+        f = FooSerializable(n=0)
+        self.assertEqual(f.serialize(f), b'\x00')

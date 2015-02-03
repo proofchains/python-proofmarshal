@@ -356,10 +356,10 @@ class Serializable(Serializer):
     HASH_HMAC_KEY = None
 
     def __setattr__(self, name, value):
-        raise AttributeError('Object is immutable')
+        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
 
     def __delattr__(self, name):
-        raise AttributeError('Object is immutable')
+        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
 
     @classmethod
     def calc_hash(cls, self):
