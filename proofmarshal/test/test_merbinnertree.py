@@ -9,6 +9,7 @@
 # propagated, or distributed except according to the terms contained in the
 # LICENSE file.
 
+import itertools
 import unittest
 
 from proofmarshal.merbinnertree import MerbinnerTree, make_MerbinnerTree_subclass
@@ -131,6 +132,29 @@ class Test_MerbinnerTree(unittest.TestCase):
         self.assertEqual(m4.right.right.key, b'\x3f'*32)
         self.assertEqual(m4.right.right.value, 0x3f)
 
+    def test___getitem__(self):
+        """MerbinnerTree[key]"""
+        expected_missing_keys = [b'\xff'*32]
+
+        expected_items = []
+        m = IntMBTree()
+        for i in range(32):
+            for key, value in expected_items:
+                self.assertEqual(m[key], value)
+
+            for key in expected_missing_keys:
+                try:
+                    m[key]
+                except KeyError as exp:
+                    self.assertEqual(exp.args[0], key)
+
+            new_key = bytes([i])*32
+
+            m = m.put(new_key, i)
+            expected_items.append((new_key, i))
+            expected_missing_keys.append(new_key[:-2] + b'\xff\xff')
+
+
     def test_remove(self):
         """MerbinnerTree.remove()"""
         m0 = IntMBTree()
@@ -192,3 +216,26 @@ class Test_MerbinnerTree(unittest.TestCase):
     def test_iter(self):
         """iter(<MerbinnerTree>) and reversed(<MerbinnerTree>)"""
         pass # FIXME
+
+    def test_issubset(self):
+        """MerbinnerTree.issubset()"""
+
+        items = [(bytes([i])*32,i) for i in range(5)]
+        items = [i for i in range(5)]
+
+        def all_subsets(n):
+            """Yield all possible merbinner tree subsets with up to n items"""
+            if n == 0:
+                yield IntMBTree()
+
+            else:
+                for base_tree in all_subsets(n - 1):
+                    yield base_tree
+                    yield base_tree.put(bytes([n])*32, n)
+
+        # Brute force issubset() against all possible combinations of subsets,
+        # checking against set's implementation each time.
+        n = 5
+        for a in all_subsets(n):
+            for b in all_subsets(n):
+                self.assertEqual(a.issubset(b), set(a.values()).issubset(set(b.values())))

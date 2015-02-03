@@ -108,14 +108,15 @@ class MerbinnerTree(proofmarshal.proof.ProofUnion):
             self = self.put(key, value)
         return self
 
-    def _MerbinnerTree__getitem(self, key):
-        """Actual __getitem__() implementation"""
-        raise NotImplementedError
-
     def __getitem__(self, key):
         """Return the value associated with the key"""
-        self.KEY_SERIALIZER.check_instance(key)
-        return self._MerbinnerTree__getitem(key)
+        closest_node, *_ = self.descend(self.key2prefix(key))
+        try:
+            if closest_node.key == key:
+                return closest_node.value
+        except AttributeError:
+            pass
+        raise KeyError(key)
 
     def __contains__(self, key):
         raise NotImplementedError
@@ -195,6 +196,39 @@ class MerbinnerTree(proofmarshal.proof.ProofUnion):
         """
         raise NotImplementedError
 
+    def _MerbinnerTree__issubset(self, them):
+        """Implementation of issubset()
+
+        It's guaranteed that self != them, and them is not pruned. Also
+        typechecking is done for you.
+        """
+        raise NotImplementedError
+
+    def issubset(self, other):
+        """Report whether this tree is a subset of other
+
+        Returns true if for every k:v in self other[k] == v, or in code:
+
+            for k, v in self.items():
+                if k not in other or other[k] != v:
+                    return False
+            return True
+        """
+        if other.__class__.__base__ is not self.__class__.__base__:
+            raise TypeError('other must be of same class as self to compute issubset()')
+
+        if self == other:
+            return True
+
+        elif other == self.EmptyNodeClass():
+            # Nothing is a subset of nothing, except nothing, which the above
+            # handles.
+            return False
+
+        # FIXME check that other is not pruned
+        else:
+            return self._MerbinnerTree__issubset(other)
+
 def make_MerbinnerTree_subclass(subclass):
     class MerbinnerTreeEmptyNodeClass(subclass):
         """The empty node"""
@@ -213,10 +247,6 @@ def make_MerbinnerTree_subclass(subclass):
                 cls.__instance = singleton
                 return singleton
 
-        def _MerbinnerTree__getitem(self, key):
-            """Actual __getitem__() implementation"""
-            raise KeyError(key)
-
         def __len__(self):
             return 0
 
@@ -228,6 +258,10 @@ def make_MerbinnerTree_subclass(subclass):
 
         def descend(self, prefix):
             yield self
+
+        def _MerbinnerTree__issubset(self, other):
+            # Nothing is a subset of anything
+            return True
 
 
     subclass.EmptyNodeClass = MerbinnerTreeEmptyNodeClass
@@ -247,13 +281,6 @@ def make_MerbinnerTree_subclass(subclass):
             """Create a merbinner tree leaf node"""
             return subclass.__base__.__base__.__new__(cls, key=key, value=value)
 
-        def __getitem__(self, prefix):
-            if self.prefix.startswith(prefix):
-                return self
-
-            else:
-                raise KeyError
-
         def __len__(self):
             return 1
 
@@ -265,6 +292,13 @@ def make_MerbinnerTree_subclass(subclass):
 
         def descend(self, prefix):
             yield self
+
+        def _MerbinnerTree__issubset(self, other):
+            try:
+                other_value = other[self.key]
+            except KeyError:
+                return False
+            return self.value == other_value
 
     subclass.LeafNodeClass = MerbinnerTreeLeafNode
 
@@ -295,7 +329,6 @@ def make_MerbinnerTree_subclass(subclass):
             # Since they are more specific, we can determine the left/right
             # order by the next bit after us.
             left,right = (first,second) if second.prefix[len(prefix)] else (second, first)
-            assert left.prefix < right.prefix
 
             return subclass.__base__.__base__.__new__(cls, left=left, right=right, prefix=prefix)
 
@@ -326,6 +359,42 @@ def make_MerbinnerTree_subclass(subclass):
                 # Prefix either ends at us, or not a match, so yield us as the
                 # closest match, terminating the descent.
                 yield self
+
+        def _MerbinnerTree__issubset(self, them):
+            if self == them:
+                return True
+
+            elif self.prefix == them.prefix:
+                # We both have the same prefix, yet we're not the same node. We
+                # can only be a subset of them if both our left and right
+                # children are subsets of their left and right children,
+                # respectively.
+                assert them.__class__ is self.__class__
+                assert not (self.left == them.left and self.right == them.right)
+
+                # FIXME: depend correctly
+                return (self.left.issubset(them.left) and self.right.issubset(them.right))
+
+            elif self.prefix.startswith(them.prefix):
+                assert len(them.prefix) < len(self.prefix)
+
+                # We start with them, and are more specific than them, so
+                # either their left or right side may contain trees that are a
+                # subset of us.
+                #
+                # Try issubset() recursively on the left or right side as
+                # appropriate to go deeper into the tree until we reach a
+                # level with the same specificity.
+                if self.prefix[len(them.prefix)]:
+                    return self._MerbinnerTree__issubset(them.right)
+                else:
+                    return self._MerbinnerTree__issubset(them.left)
+
+            else:
+                # We don't share the same prefix, nor do we start with them, so
+                # there's no way we're a subset.
+                return False
+
 
     subclass.InnerNodeClass = MerbinnerTreeInnerNode
 
