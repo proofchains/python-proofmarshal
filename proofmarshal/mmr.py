@@ -14,7 +14,6 @@ import hmac
 import operator
 
 import proofmarshal.proof
-import proofmarshal.serialize
 
 
 """(Summed) Merkle Mountain Range support
@@ -273,6 +272,7 @@ class MerkleMountainRange(proofmarshal.proof.ProofUnion):
 
 
 def make_mmr_subclass(subclass):
+    @subclass.declare_union_subclass
     class MerkleMountainRangeEmptyNode(subclass):
         """Empty node"""
         __slots__ = []
@@ -319,6 +319,7 @@ def make_mmr_subclass(subclass):
 
     subclass.EmptyNodeClass = MerkleMountainRangeEmptyNode
 
+    @subclass.declare_union_subclass
     class MerkleMountainRangeLeafNode(subclass):
         """Inner node"""
         __slots__ = ['value']
@@ -334,7 +335,6 @@ def make_mmr_subclass(subclass):
         def __getitem__(self, idx):
             if isinstance(idx, int):
                 if idx == 0 or idx == -1:
-                    self.depend('value')
                     return self.value
 
                 else:
@@ -360,11 +360,9 @@ def make_mmr_subclass(subclass):
                 raise TypeError('expected int or slice; got %r' % idx.__class__)
 
         def __iter__(self):
-            self.depend('value')
             yield self.value
 
         def __reversed__(self):
-            self.depend('value')
             yield self.value
 
         def append(self, new_value):
@@ -378,12 +376,13 @@ def make_mmr_subclass(subclass):
     subclass.LeafNodeClass = MerkleMountainRangeLeafNode
 
 
+    @subclass.declare_union_subclass
     class MerkleMountainRangeInnerNode(subclass):
         """Inner node"""
         __slots__ = ['left',  'right', 'length']
 
-        SERIALIZED_ATTRS = [('left',  proofmarshal.proof.MaybePruned(subclass)),
-                            ('right', proofmarshal.proof.MaybePruned(subclass)),
+        SERIALIZED_ATTRS = [('left',  subclass),
+                            ('right', subclass),
                             ('length', proofmarshal.serialize.UInt64)]
 
         def __new__(cls, left, right):
@@ -391,7 +390,6 @@ def make_mmr_subclass(subclass):
             return subclass.__base__.__base__.__new__(cls, left=left, right=right, length=length)
 
         def __len__(self):
-            self.depend('length')
             return self.length
 
         def __getitem__(self, idx):
@@ -404,11 +402,9 @@ def make_mmr_subclass(subclass):
                 if not (0 <= idx < len(self)):
                     raise IndexError('index out of range')
 
-                self.depend('left')
                 if 0 <= idx < len(self.left):
                     return self.left[idx]
 
-                self.depend('right')
                 if len(self.left) <= idx < len(self.left) + len(self.right):
                     return self.right[idx - len(self.left)]
 
@@ -426,7 +422,6 @@ def make_mmr_subclass(subclass):
                     # ourselves
                     return self
 
-                self.depend('left')
                 if start < len(self.left):
                     # Left side satisfies at least part of the slice.
                     r = self.left[start:stop:step]
@@ -434,7 +429,6 @@ def make_mmr_subclass(subclass):
                     # Do we need part of the right side as well?
                     if stop > len(self.left):
                         offset = len(self.left)
-                        self.depend('right')
                         r = r.extend(self.right[0:stop - offset:step])
 
                     return r
@@ -442,7 +436,6 @@ def make_mmr_subclass(subclass):
                 if start >= len(self.left) and start < len(self):
                     # Right side satisfies at least part of the slice
                     offset = len(self.left)
-                    self.depend('right')
                     return self.right[start - offset : stop - offset : step]
 
                 else:
@@ -452,15 +445,11 @@ def make_mmr_subclass(subclass):
                 raise TypeError('expected int or slice; got %r' % idx.__class__)
 
         def __iter__(self):
-            self.depend('left')
             yield from self.left
-            self.depend('right')
             yield from self.right
 
         def __reversed__(self):
-            self.depend('right')
             yield from reversed(self.right)
-            self.depend('left')
             yield from reversed(self.left)
 
         def _merge_trees(self, new_right):
@@ -483,13 +472,11 @@ def make_mmr_subclass(subclass):
                 # We can assert this, because if that was not true it would mean
                 # only trees on the left side needed merging, which implies the
                 # right side has fewer items in it than the tree to be merged.
-                self.depend('right')
                 assert(len(self.right) & len(new_right))
 
                 new_right = self.right._merge_trees(new_right)
 
                 # Recurse on the left side.
-                self.depend('left')
                 return self.left._merge_trees(new_right)
 
         def append(self, value):
@@ -508,16 +495,11 @@ def make_mmr_subclass(subclass):
             else:
                 # Odd number of items. At least one new perfect tree will be
                 # created.
-                self.depend('right')
                 new_right = self.right.append(value)
 
                 # Merge trees
-                self.depend('left')
                 return self.left._merge_trees(new_right)
 
     subclass.InnerNodeClass = MerkleMountainRangeInnerNode
 
-    subclass.UNION_CLASSES = (subclass.EmptyNodeClass,
-                              subclass.LeafNodeClass,
-                              subclass.InnerNodeClass)
     return subclass

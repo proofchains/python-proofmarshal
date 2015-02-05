@@ -36,14 +36,8 @@ uIntLEB128(max) - An unsigned, little-endian, base128, integer in the range 0 <=
 
 IntLEB128(min,max)  - Signed, little-endian, base128, integer in the range min < i < max
 
-
-structure - one or more of the above
-
-
-Basic functionality:
-
-unsigned integers in some range
-
+Struct - Zero or more of the above, (de)serialized in a fixed order to form a
+         structure.
 
 Serialization contexts
 ======================
@@ -65,7 +59,7 @@ representations that are less than the length of a hash return a so-called
 
 DIGEST_LENGTH = 32
 
-class DeserializationError:
+class DeserializationError(Exception):
     """Base class for all errors encountered during deserialization"""
 
 class TruncationError(DeserializationError):
@@ -85,6 +79,10 @@ class SerializationContext:
     Allows multiple serialization targets to share the same codebase, for
     instance bytes, memoized serialization, hashing, etc.
     """
+
+    def write_bool(self, value):
+        """Write a bool"""
+        raise NotImplementedError
 
     def write_varuint(self, value):
         """Write a variable-length unsigned integer"""
@@ -114,6 +112,10 @@ class DeserializationContext:
     Allows multiple deserialization sources to share the same codebase, for
     instance bytes, memoized serialization, hashing, etc.
     """
+    def read_bool(self):
+        """Read a bool"""
+        raise NotImplementedError
+
     def read_varuint(self, max_int):
         """Read a variable-length unsigned integer"""
         raise NotImplementedError
@@ -138,6 +140,17 @@ class StreamSerializationContext(SerializationContext):
     def __init__(self, fd):
         """Serialize to a stream"""
         self.fd = fd
+
+    def write_bool(self, value):
+        # unsigned little-endian base128 format (LEB128)
+        if value is True:
+            self.fd.write(b'\xff')
+
+        elif value is False:
+            self.fd.write(b'\x00')
+
+        else:
+            raise TypeError('Expected bool; got %r' % value.__class__)
 
     def write_varuint(self, value):
         # unsigned little-endian base128 format (LEB128)
@@ -173,6 +186,18 @@ class StreamDeserializationContext(DeserializationContext):
             raise DataTruncatedError('Tried to read %d bytes but got only %d bytes' % \
                                         (l, len(r)))
         return r
+
+    def read_bool(self):
+        # unsigned little-endian base128 format (LEB128)
+        b = self.fd_read(1)[0]
+        if b == 0xff:
+            return True
+
+        elif b == 0x00:
+            return False
+
+        else:
+            raise DeserializationError('read_bool() expected 0xff or 0x00; got %d' % b)
 
     def read_varuint(self):
         value = 0
@@ -211,35 +236,12 @@ class BytesDeserializationContext(StreamDeserializationContext):
 
     # FIXME: need to check that there isn't extra crap at end of object
 
-
-class HashSerializationContext(BytesSerializationContext):
-    """Serialization context for calculating hashes of objects
-
-    Serialization is never recursive in this context; when encountering an
-    object its hash is used instead.
-    """
-
-    def write_bytes(self, value):
-        if len(value) > 32:
-            raise NotImplementedError
-
-        self.fd.write(value)
-
-    def write_obj(self, value, serialization_class=None):
-        hash = None
-        if serialization_class is None:
-            hash = value.hash
-
-        else:
-            hash = serialization_class.calc_hash(value)
-
-        assert len(hash) == 32
-        self.write_bytes(None, hash, 32)
-
-
 class Serializer:
     """(De)serialize an instance of a class
 
+    Base class for all serialization classes. The actual serialization is
+    performed by serialization *instances*, not classes, and an instance may be
+    its own serializer.
     """
     __slots__ = []
 
@@ -255,7 +257,7 @@ class Serializer:
         raise NotImplementedError
 
     @classmethod
-    def ctx_serialize(cls, value, ctx):
+    def ctx_serialize(cls, self, ctx):
         """Serialize to a context"""
         raise NotImplementedError
 
@@ -265,10 +267,10 @@ class Serializer:
         raise NotImplementedError
 
     @classmethod
-    def serialize(cls, value):
+    def serialize(cls, self):
         """Serialize to bytes"""
         ctx = BytesSerializationContext()
-        cls.ctx_serialize(value, ctx)
+        cls.ctx_serialize(self, ctx)
         return ctx.getbytes()
 
     @classmethod
@@ -279,7 +281,23 @@ class Serializer:
         # FIXME: check for junk at end
         return r
 
+class SerBool(Serializer):
+    """Serialization of boolean values"""
+    @classmethod
+    def check_instance(cls, value):
+        if value.__class__ is not bool:
+            raise SerializerTypeError('Expected bool; got %r' % value.__class__)
+
+    @classmethod
+    def ctx_serialize(cls, self, ctx):
+        ctx.write_bool(self)
+
+    @classmethod
+    def ctx_deserialize(cls, ctx):
+        return ctx.read_bool()
+
 class FixedBytes(Serializer):
+    """Serialization of fixed-length byte arrays"""
     EXPECTED_LENGTH = None
 
     def __new__(cls, expected_length):
@@ -315,6 +333,7 @@ class Digest(FixedBytes):
     EXPECTED_LENGTH = DIGEST_LENGTH
 
 class UInt(Serializer):
+    """Serialization of unsigned integers"""
     @classmethod
     def check_instance(cls, value):
         if value.__class__ is not int:
@@ -329,7 +348,10 @@ class UInt(Serializer):
 
     @classmethod
     def ctx_deserialize(cls, ctx):
-        raise NotImplementedError
+        r = ctx.read_varuint()
+        if not (0 <= r <= cls.MAX_INT):
+            raise DeserializationError('Deserialized integer out of range; 0 <= %d <= %d' % (r, cls.MAX_INT))
+        return r
 
 class UInt8(UInt):
     MAX_INT = 2**8-1
@@ -340,75 +362,25 @@ class UInt32(UInt):
 class UInt64(UInt):
     MAX_INT = 2**64-1
 
+class HashingSerializer(Serializer):
+    """Serialization of objects with globally unique hashes
 
-class Serializable(Serializer):
-    """Base class for (immutable) serializable objects
+    In addition to (de)serialization, also provides calc_hash(), which returns
+    the globally unique hash of the instance.
 
-    Serializable objects always have a 'hash' attribute.
+    By "globally unique", we mean that it is guaranteed no two instances exist
+    with the same hash, even across different classes of instances, unless the
+    instances themselves are equivalent.
+
     """
-    __slots__ = ['hash']
-
-    # Serialized class attributes
-    #
-    # ('attr_name': serialization class,)
-    SERIALIZED_ATTRS = None
-
     HASH_HMAC_KEY = None
 
-    def __setattr__(self, name, value):
-        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
-
-    def __delattr__(self, name):
-        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
-
     @classmethod
-    def calc_hash(cls, self):
-        """Calculate the hash of this serializable object
+    def get_hash(cls, obj):
+        """Get the globally unique hash of an instance
 
-        Recalculates the hash on each invocation from actual instance
-        attributes; if something is wrong it is possible for self.hash !=
-        self.calc_hash()
+        The hash may or may not have been calculated from scratch; a cached
+        hash may be returned in which case memory corruption or some other
+        error may result in an incorrect hash.
         """
-        ctx = HashSerializationContext()
-        cls.ctx_serialize(self, ctx)
-        return hmac.HMAC(self.HASH_HMAC_KEY, ctx.getbytes(), hashlib.sha256).digest()
-
-    @classmethod
-    def check_instance(cls, value):
-        """Check that an instance can be serialized by this serializer
-
-        Raises SerializerTypeError if not
-        """
-        if value.__class__ is not cls:
-            raise SerializerTypeError('Expected %r; got %r' % (cls, value.__class__))
-
-    def __new__(cls, **kwargs):
-        """Basic creation/initialization"""
-        serialized_attrs = {name:ser_cls for (name, ser_cls) in cls.SERIALIZED_ATTRS}
-
-        self = object.__new__(cls)
-        for name, ser_cls in serialized_attrs.items():
-            value = kwargs[name]
-            ser_cls.check_instance(value)
-            object.__setattr__(self, name, value)
-
-        object.__setattr__(self, 'hash', cls.calc_hash(self))
-        return self
-
-    @classmethod
-    def ctx_serialize(cls, self, ctx):
-        for attr_name, ser_cls in cls.SERIALIZED_ATTRS:
-            attr = getattr(self, attr_name)
-            ser_cls.ctx_serialize(attr, ctx)
-
-    @classmethod
-    def ctx_deserialize(cls, ctx):
-        self = object.__new__(cls)
-
-        for name, ser_cls in cls.SERIALIZED_ATTRS:
-            value = ser_cls.ctx_deserialize(ctx)
-
-            object.__setattr__(self, name, value)
-
-        object.__setattr__(self, 'hash', self.calc_hash())
-        return self
+        raise NotImplementedError('get_hash() not implemented for %r' % cls)

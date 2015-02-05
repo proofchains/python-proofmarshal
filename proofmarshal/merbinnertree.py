@@ -14,6 +14,7 @@ import hmac
 import operator
 
 import proofmarshal.proof
+
 from proofmarshal.bits import Bits, BitsSerializer
 
 """(Summed) Merkleized Binary Radix Tree support
@@ -230,6 +231,7 @@ class MerbinnerTree(proofmarshal.proof.ProofUnion):
             return self._MerbinnerTree__issubset(other)
 
 def make_MerbinnerTree_subclass(subclass):
+    @subclass.declare_union_subclass
     class MerbinnerTreeEmptyNodeClass(subclass):
         """The empty node"""
         __slots__ = []
@@ -266,6 +268,7 @@ def make_MerbinnerTree_subclass(subclass):
 
     subclass.EmptyNodeClass = MerbinnerTreeEmptyNodeClass
 
+    @subclass.declare_union_subclass
     class MerbinnerTreeLeafNode(subclass):
         """Leaf node"""
         __slots__ = ['key','value']
@@ -302,13 +305,14 @@ def make_MerbinnerTree_subclass(subclass):
 
     subclass.LeafNodeClass = MerbinnerTreeLeafNode
 
+    @subclass.declare_union_subclass
     class MerbinnerTreeInnerNode(subclass):
         """Inner node, contains two children"""
         __slots__ = ['left','right','prefix']
 
         SERIALIZED_ATTRS = [('prefix', BitsSerializer),
-                            ('left',  proofmarshal.proof.MaybePruned(subclass)),
-                            ('right', proofmarshal.proof.MaybePruned(subclass))]
+                            ('left',  subclass),
+                            ('right', subclass)]
 
         def __new__(cls, first, second):
             """Create a merbinner tree leaf node
@@ -395,12 +399,6 @@ def make_MerbinnerTree_subclass(subclass):
                 # there's no way we're a subset.
                 return False
 
-
     subclass.InnerNodeClass = MerbinnerTreeInnerNode
-
-
-    subclass.UNION_CLASSES = (subclass.EmptyNodeClass,
-                              subclass.LeafNodeClass,
-                              subclass.InnerNodeClass)
 
     return subclass
