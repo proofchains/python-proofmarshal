@@ -165,3 +165,19 @@ class Test_MerkleMountainRange(unittest.TestCase):
         # FIXME: not supported yet
 
         # check that perfect trees are returned unchanged
+
+    def test_serialize(self):
+        self.assertEqual(IntMMR().serialize(),
+                         bytes.fromhex('00' '00'))
+        self.assertEqual(IntMMR([0x0f]).serialize(),
+                         bytes.fromhex('00' '010f'))
+        self.assertEqual(IntMMR([0x0e, 0x0f]).serialize(),
+                         bytes.fromhex('00' '02' '00010e' '00010f' '02'))
+
+    def test_deserialize(self):
+        self.assertEqual(IntMMR(),
+                         IntMMR.deserialize(bytes.fromhex('00' '00')))
+        self.assertEqual(IntMMR([0x0f]),
+                         IntMMR.deserialize(bytes.fromhex('00' '010f')))
+        self.assertEqual(IntMMR([0x0e, 0x0f]),
+                         IntMMR.deserialize(bytes.fromhex('00' '02' '00010e' '00010f' '02')))

@@ -196,7 +196,6 @@ class Proof(HashingSerializer):
     def ctx_deserialize(cls, ctx):
         fully_pruned = ctx.read_bool()
 
-
         if fully_pruned:
             self = object.__new__(cls)
 
@@ -259,6 +258,13 @@ class ProofUnion(Proof):
         super()._ctx_serialize(ctx)
 
     @classmethod
-    def ctx_deserialize(cls, ctx):
-        raise NotImplementedError
+    def _ctx_deserialize(cls, ctx):
+        i = ctx.read_varuint()
 
+        try:
+            union_cls = cls.UNION_CLASSES[i]
+        except IndexError:
+            # FIXME: nicer error message
+            raise DeserializationError('bad union class number %d' % i)
+
+        return super(ProofUnion, union_cls)._ctx_deserialize(ctx)

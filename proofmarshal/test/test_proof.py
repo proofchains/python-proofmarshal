@@ -214,6 +214,16 @@ class Test_StructUnion(unittest.TestCase):
                                        right=LeafFooUnion(value=0xf)).serialize(),
                          b'\x00\x02\x00\x00\x00\x01\x0f')
 
+    def test_deserialization(self):
+        x = EmptyFooUnion()
+        self.assertEqual(EmptyFooUnion.deserialize(x.serialize()), x)
+
+        x = LeafFooUnion(value=0xf)
+        self.assertEqual(LeafFooUnion.deserialize(x.serialize()), x)
+
+        x = InnerFooUnion(left=EmptyFooUnion(), right=LeafFooUnion(value=0xf))
+        self.assertEqual(InnerFooUnion.deserialize(x.serialize()), x)
+
     def test_hashing(self):
         def H(cls, hmac_msg):
             return hmac.HMAC(cls.HASH_HMAC_KEY, hmac_msg, hashlib.sha256).digest()

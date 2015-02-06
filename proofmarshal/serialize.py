@@ -183,8 +183,8 @@ class StreamDeserializationContext(DeserializationContext):
     def fd_read(self, l):
         r = self.fd.read(l)
         if len(r) != l:
-            raise DataTruncatedError('Tried to read %d bytes but got only %d bytes' % \
-                                        (l, len(r)))
+            raise TruncationError('Tried to read %d bytes but got only %d bytes' % \
+                                  (l, len(r)))
         return r
 
     def read_bool(self):
