@@ -23,6 +23,12 @@ cryptographic proofs that may have dependent proofs pruned away.
 
 """
 
+class PrunedError(Exception):
+    def __init__(self, attr_name, instance):
+        self.attr_name = attr_name
+        self.instance = instance
+        super().__init__('Attribute %r not available, pruned away.' % attr_name)
+
 class Proof(HashingSerializer):
     """Base class for all proof objects
 
@@ -34,14 +40,16 @@ class Proof(HashingSerializer):
 
     __slots__ = ['is_pruned', 'is_fully_pruned','__orig_instance','hash']
     SERIALIZED_ATTRS = ()
+    SERIALIZED_ATTRS_BY_NAME = None
 
     def __new__(cls, **kwargs):
         """Basic creation/initialization"""
-        serialized_attrs = {name:ser_cls for (name, ser_cls) in cls.SERIALIZED_ATTRS}
+        if cls.SERIALIZED_ATTRS_BY_NAME is None:
+            cls.SERIALIZED_ATTRS_BY_NAME = {name:ser_cls for name, ser_cls in cls.SERIALIZED_ATTRS}
 
         is_pruned = False
         self = object.__new__(cls)
-        for name, ser_cls in serialized_attrs.items():
+        for name, ser_cls in cls.SERIALIZED_ATTRS_BY_NAME.items():
             value = kwargs[name]
             ser_cls.check_instance(value)
             object.__setattr__(self, name, value)
@@ -102,9 +110,9 @@ class Proof(HashingSerializer):
         if self.__orig_instance is None:
             # Don't have the original instance. Is this an attribute we should
             # have?
-            if name in ():
+            if name in self.SERIALIZED_ATTRS_BY_NAME:
                 # FIXME: raise pruning error
-                raise NotImplementedError
+                raise PrunedError(name, self)
             else:
                 raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 

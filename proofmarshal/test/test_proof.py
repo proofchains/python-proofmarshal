@@ -161,6 +161,18 @@ class Test_Proof(unittest.TestCase):
 
         self.assertEqual(b.nonproof_attr, 3)
 
+    def test_PrunedError(self):
+        """PrunedError raised when pruned attribute is not available"""
+
+        orig = BarProof(left=FooProof(n=1), right=FooProof(n=2), nonproof_attr=3)
+        pruned = BarProof.deserialize(orig.prune().serialize())
+
+        try:
+            pruned.left.n
+        except PrunedError as exp:
+            self.assertEqual(exp.attr_name, 'left')
+            self.assertIs(exp.instance, pruned)
+
 
 class FooUnion(ProofUnion):
     HASH_HMAC_KEY = None
