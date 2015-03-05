@@ -245,7 +245,7 @@ def make_MerbinnerTree_subclass(subclass):
             if cls.__instance is not None:
                 return cls.__instance
             else:
-                singleton = subclass.__base__.__base__.__new__(cls)
+                singleton = proofmarshal.proof.ProofUnion.__new__(cls)
                 cls.__instance = singleton
                 return singleton
 
@@ -282,7 +282,7 @@ def make_MerbinnerTree_subclass(subclass):
 
         def __new__(cls, key, value):
             """Create a merbinner tree leaf node"""
-            return subclass.__base__.__base__.__new__(cls, key=key, value=value)
+            return proofmarshal.proof.ProofUnion.__new__(cls, key=key, value=value)
 
         def __len__(self):
             return 1
@@ -334,7 +334,7 @@ def make_MerbinnerTree_subclass(subclass):
             # order by the next bit after us.
             left,right = (first,second) if second.prefix[len(prefix)] else (second, first)
 
-            return subclass.__base__.__base__.__new__(cls, left=left, right=right, prefix=prefix)
+            return proofmarshal.proof.ProofUnion.__new__(cls, left=left, right=right, prefix=prefix)
 
         def __len__(self):
             return len(self.left) + len(self.right)
