@@ -193,7 +193,7 @@ class InnerFooUnion(FooUnion):
     SERIALIZED_ATTRS = [('left', FooUnion),
                         ('right', FooUnion)]
 
-class Test_StructUnion(unittest.TestCase):
+class Test_ProofUnion(unittest.TestCase):
     def test_checkinstance(self):
         FooUnion.check_instance(EmptyFooUnion())
         FooUnion.check_instance(LeafFooUnion(value=0))
