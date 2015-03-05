@@ -235,12 +235,19 @@ class ProofUnion(Proof):
         """Class decorator to make a subclass part of a ProofUnion
 
         Warning! Declaration order is consensus-critical.
+
+        The HASH_HMAC_KEY for the subclass will be derived from for you if not
+        set manually.
         """
         if not issubclass(subclass, ProofUnion):
             raise TypeError('Only ProofUnion subclasses can be part of a ProofUnion')
 
         if cls.UNION_CLASSES is None:
             cls.UNION_CLASSES = []
+
+        if cls.HASH_HMAC_KEY == subclass.HASH_HMAC_KEY:
+            k = bytes([len(cls.UNION_CLASSES)])
+            subclass.HASH_HMAC_KEY = hmac.HMAC(cls.HASH_HMAC_KEY, k, hashlib.sha256).digest()[0:16]
 
         cls.UNION_CLASSES.append(subclass)
 

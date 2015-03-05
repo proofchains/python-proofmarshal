@@ -175,7 +175,7 @@ class Test_Proof(unittest.TestCase):
 
 
 class FooUnion(ProofUnion):
-    HASH_HMAC_KEY = None
+    HASH_HMAC_KEY = b'\xff'*32
 
 @FooUnion.declare_union_subclass
 class EmptyFooUnion(FooUnion):
@@ -192,6 +192,10 @@ class InnerFooUnion(FooUnion):
     HASH_HMAC_KEY = b'\x22'*32
     SERIALIZED_ATTRS = [('left', FooUnion),
                         ('right', FooUnion)]
+
+@FooUnion.declare_union_subclass
+class DerivedHmacFooUnion(FooUnion):
+    SERIALIZED_ATTRS = []
 
 class Test_ProofUnion(unittest.TestCase):
     def test_checkinstance(self):
@@ -240,3 +244,7 @@ class Test_ProofUnion(unittest.TestCase):
         expected_inner_hash = H(InnerFooUnion, expected_empty_hash + expected_leaf_hash)
         self.assertEqual(inner.hash, expected_inner_hash)
 
+    def test_hmac_derivation(self):
+        self.assertNotEqual(FooUnion.HASH_HMAC_KEY, DerivedHmacFooUnion.HASH_HMAC_KEY)
+        self.assertEqual(DerivedHmacFooUnion.HASH_HMAC_KEY,
+                         b'\xbbq\xe7\xee\x04\xbb\xbfH\xb3\x00&\x9a\x8b\xbd\x8a\xc0')
