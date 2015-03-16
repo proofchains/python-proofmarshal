@@ -77,6 +77,12 @@ class Proof(HashingSerializer):
         else:
             return NotImplemented
 
+    def __hash__(self):
+        # We could return self.hash directly, however that might cause problems
+        # in cases where the Proof object has had some kind of PoW applied to
+        # it to brute-force the hash.
+        return hash(self.hash)
+
     def __setattr__(self, name, value):
         raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
 

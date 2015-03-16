@@ -38,6 +38,18 @@ class BarProof(Proof):
             return self.left
 
 class Test_Proof(unittest.TestCase):
+    def test_hash(self):
+        """Proofs are hashable"""
+        f1a = FooProof(n=1)
+        f1b = FooProof(n=1)
+        f2 = FooProof(n=2)
+
+        self.assertEqual(hash(f1a), hash(f1b))
+        self.assertEqual(len(set([f1a, f1b])), 1)
+
+        self.assertNotEqual(hash(f1a), hash(f2))
+        self.assertEqual(len(set([f1a, f1b, f2])), 2)
+
     def test_pruning(self):
         """Proof pruning"""
 
