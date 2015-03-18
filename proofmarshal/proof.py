@@ -32,8 +32,8 @@ class PrunedError(Exception):
 class Proof(HashingSerializer):
     """Base class for all proof objects
 
-    Proofs are Structs that support pruning, automatically track dependencies,
-    and can be (partially) validated.
+    Proofs are structures that support pruning, automatically track
+    dependencies, and can be (partially) validated.
 
     """
     HASH_HMAC_KEY = None
