@@ -262,4 +262,4 @@ class Test_ProofUnion(unittest.TestCase):
     def test_hmac_derivation(self):
         self.assertNotEqual(FooUnion.HASHTAG, DerivedHmacFooUnion.HASHTAG)
         self.assertEqual(DerivedHmacFooUnion.HASHTAG,
-                         HashTag('e215940a-abda-0298-ce42-2717bec6fdf2'))
+                         HashTag('498430c5-4ed1-8dd5-3f09-97e0725c3407'))

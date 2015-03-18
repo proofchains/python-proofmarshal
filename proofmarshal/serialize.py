@@ -397,9 +397,13 @@ class HashTag(bytes):
         return bytes.__new__(cls, uuid.UUID(tag).bytes)
 
     def derive(self, subtag):
-        """Derive a new tagged hash function from a subtag"""
-        b = self(subtag).digest()
-        return bytes.__new__(HashTag, b[0:16])
+        """Derive a new tagged hash function from this tag"""
+        # We need to make sure that derivations can't themselves collide in any
+        # way with any other hash, so all derivations start with a unique root
+        # for the purpose of deriving only.
+        derivation_hasher = HashTag('8125d227-981c-4ca0-afa7-ab9911352c85')
+        derived_digest = derivation_hasher(self + subtag).digest()
+        return bytes.__new__(HashTag, derived_digest[0:16])
 
     def __str__(self):
         h = binascii.hexlify(self).decode('utf8')
