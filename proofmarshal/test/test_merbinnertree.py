@@ -13,7 +13,7 @@ import itertools
 import unittest
 
 from proofmarshal.merbinnertree import MerbinnerTree, make_MerbinnerTree_subclass
-from proofmarshal.serialize import UInt64, Digest
+from proofmarshal.serialize import UInt64, Digest, HashTag
 from proofmarshal.bits import Bits
 
 def str_tree(tip):
@@ -31,7 +31,9 @@ def str_tree(tip):
 @make_MerbinnerTree_subclass
 class IntMBTree(MerbinnerTree):
     __slots__ = []
-    HASH_HMAC_KEY = b'\x00'*16
+
+    HASHTAG = HashTag('2bb60984-0486-41ab-aad6-bd5b1586bd14')
+
     KEY_SERIALIZER = Digest
     VALUE_SERIALIZER = UInt64
 

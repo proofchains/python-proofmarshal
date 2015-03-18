@@ -11,8 +11,8 @@
 
 import binascii
 import hashlib
-import hmac
 import io
+import uuid
 
 """Deterministic, (mostly)context-free, object (de)serialization, and hashing
 
@@ -373,7 +373,7 @@ class HashingSerializer(Serializer):
     instances themselves are equivalent.
 
     """
-    HASH_HMAC_KEY = None
+    TAG = None
 
     @classmethod
     def get_hash(cls, obj):
@@ -384,3 +384,31 @@ class HashingSerializer(Serializer):
         error may result in an incorrect hash.
         """
         raise NotImplementedError('get_hash() not implemented for %r' % cls)
+
+class HashTag(bytes):
+    """Tagged hashing
+
+    Instances of this class implement tagged hashing, where a single hash
+    function is turned into a family of hash functions, such that every (tag, msg)
+    pair maps to a unique digest.
+    """
+    __slots__ = ()
+    def __new__(cls, tag):
+        return bytes.__new__(cls, uuid.UUID(tag).bytes)
+
+    def derive(self, subtag):
+        """Derive a new tagged hash function from a subtag"""
+        b = self(subtag).digest()
+        return bytes.__new__(HashTag, b[0:16])
+
+    def __str__(self):
+        h = binascii.hexlify(self).decode('utf8')
+        return '%s-%s-%s-%s-%s' % (h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+
+    def __repr__(self):
+        return "%s('%s')" % (self.__class__.__qualname__, str(self))
+
+    def __call__(self, msg=b''):
+        r = hashlib.sha256(self)
+        r.update(msg)
+        return r

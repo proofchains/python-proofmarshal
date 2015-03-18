@@ -11,10 +11,8 @@
 
 import binascii
 import copy
-import hashlib
-import hmac
 
-from proofmarshal.serialize import HashingSerializer, BytesSerializationContext, SerializerTypeError
+from proofmarshal.serialize import HashingSerializer, BytesSerializationContext, SerializerTypeError, HashTag
 
 """Proof representation
 
@@ -36,7 +34,7 @@ class Proof(HashingSerializer):
     dependencies, and can be (partially) validated.
 
     """
-    HASH_HMAC_KEY = None
+    HASHTAG = None
 
     __slots__ = ['is_pruned', 'is_fully_pruned','__orig_instance','hash']
     SERIALIZED_ATTRS = ()
@@ -151,7 +149,7 @@ class Proof(HashingSerializer):
 
         else:
             # FIXME: catch pruning errors; should never happen
-            hasher = hmac.HMAC(self.HASH_HMAC_KEY, b'', hashlib.sha256)
+            hasher = self.HASHTAG()
 
             for attr_name, ser_cls in self.SERIALIZED_ATTRS:
                 attr_value = getattr(self, attr_name)
@@ -240,10 +238,7 @@ class ProofUnion(Proof):
     def declare_union_subclass(cls, subclass):
         """Class decorator to make a subclass part of a ProofUnion
 
-        Warning! Declaration order is consensus-critical.
-
-        The HASH_HMAC_KEY for the subclass will be derived from for you if not
-        set manually.
+        The HASHTAG for the subclass will be derived from for you.
         """
         if not issubclass(subclass, ProofUnion):
             raise TypeError('Only ProofUnion subclasses can be part of a ProofUnion')
@@ -251,9 +246,7 @@ class ProofUnion(Proof):
         if cls.UNION_CLASSES is None:
             cls.UNION_CLASSES = []
 
-        if cls.HASH_HMAC_KEY == subclass.HASH_HMAC_KEY:
-            k = bytes([len(cls.UNION_CLASSES)])
-            subclass.HASH_HMAC_KEY = hmac.HMAC(cls.HASH_HMAC_KEY, k, hashlib.sha256).digest()[0:16]
+        subclass.HASHTAG = subclass.SUB_HASHTAG.derive(cls.HASHTAG)
 
         cls.UNION_CLASSES.append(subclass)
 

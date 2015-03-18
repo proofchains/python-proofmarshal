@@ -12,12 +12,12 @@
 import unittest
 
 from proofmarshal.mmr import MerkleMountainRange, make_mmr_subclass
-from proofmarshal.serialize import UInt64
+from proofmarshal.serialize import UInt64, HashTag
 
 @make_mmr_subclass
 class IntMMR(MerkleMountainRange):
     __slots__ = []
-    HASH_HMAC_KEY = b'\x00'*16
+    HASHTAG = HashTag('738b5a85-d6f1-4873-9c21-300a01166f1d')
     VALUE_SERIALIZER = UInt64
 
 

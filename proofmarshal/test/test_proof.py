@@ -9,19 +9,21 @@
 # propagated, or distributed except according to the terms contained in the
 # LICENSE file.
 
+import hashlib
+import hmac
 import unittest
 
 from proofmarshal.proof import *
 from proofmarshal.serialize import *
 
 class FooProof(Proof):
-    HASH_HMAC_KEY = b'\x16\xdcj\x9bS\x9b\xf0\xf3I\xe0\xdaL\xbfF\xc0g'
+    HASHTAG = HashTag('19e5278a-76cc-479c-8713-e7648636979c')
 
     __slots__ = ['n']
     SERIALIZED_ATTRS = [('n', UInt8)]
 
 class BarProof(Proof):
-    HASH_HMAC_KEY = b'Z\xf8\x0bZ\x7f0\x89\x88#\x16!\x88\xe2\x06\xe2&'
+    HASHTAG = HashTag('4c3cce55-0a90-404e-baf3-a6720205e8ab')
 
     __slots__ = ['left', 'right', 'nonproof_attr']
     SERIALIZED_ATTRS = [('left',  FooProof),
@@ -187,26 +189,27 @@ class Test_Proof(unittest.TestCase):
 
 
 class FooUnion(ProofUnion):
-    HASH_HMAC_KEY = b'\xff'*32
+    HASHTAG = HashTag('0790a99e-0a12-4677-b4c6-57054039b9cf')
 
 @FooUnion.declare_union_subclass
 class EmptyFooUnion(FooUnion):
-    HASH_HMAC_KEY = b'\x00'*32
+    SUB_HASHTAG = HashTag('a5516ff0-99a7-4a00-b918-8d30ea6f25b1')
     SERIALIZED_ATTRS = []
 
 @FooUnion.declare_union_subclass
 class LeafFooUnion(FooUnion):
-    HASH_HMAC_KEY = b'\x11'*32
+    SUB_HASHTAG = HashTag('69cd3faa-b1e7-48e4-be6e-d73f6644829b')
     SERIALIZED_ATTRS = [('value', UInt8)]
 
 @FooUnion.declare_union_subclass
 class InnerFooUnion(FooUnion):
-    HASH_HMAC_KEY = b'\x22'*32
+    SUB_HASHTAG = HashTag('e540376a-b7b4-4b06-8d25-b7b00cf7e081')
     SERIALIZED_ATTRS = [('left', FooUnion),
                         ('right', FooUnion)]
 
 @FooUnion.declare_union_subclass
 class DerivedHmacFooUnion(FooUnion):
+    SUB_HASHTAG = HashTag('6d0ef952-6621-4a85-8f4c-23ae0427c937')
     SERIALIZED_ATTRS = []
 
 class Test_ProofUnion(unittest.TestCase):
@@ -241,8 +244,8 @@ class Test_ProofUnion(unittest.TestCase):
         self.assertEqual(InnerFooUnion.deserialize(x.serialize()), x)
 
     def test_hashing(self):
-        def H(cls, hmac_msg):
-            return hmac.HMAC(cls.HASH_HMAC_KEY, hmac_msg, hashlib.sha256).digest()
+        def H(cls, msg):
+            return hashlib.sha256(cls.HASHTAG + msg).digest()
 
         empty = EmptyFooUnion()
         expected_empty_hash = H(EmptyFooUnion, b'')
@@ -257,6 +260,6 @@ class Test_ProofUnion(unittest.TestCase):
         self.assertEqual(inner.hash, expected_inner_hash)
 
     def test_hmac_derivation(self):
-        self.assertNotEqual(FooUnion.HASH_HMAC_KEY, DerivedHmacFooUnion.HASH_HMAC_KEY)
-        self.assertEqual(DerivedHmacFooUnion.HASH_HMAC_KEY,
-                         b'\xbbq\xe7\xee\x04\xbb\xbfH\xb3\x00&\x9a\x8b\xbd\x8a\xc0')
+        self.assertNotEqual(FooUnion.HASHTAG, DerivedHmacFooUnion.HASHTAG)
+        self.assertEqual(DerivedHmacFooUnion.HASHTAG,
+                         HashTag('e215940a-abda-0298-ce42-2717bec6fdf2'))

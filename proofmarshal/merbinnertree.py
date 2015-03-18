@@ -87,7 +87,7 @@ class MerbinnerTree(proofmarshal.proof.ProofUnion):
     """Merbinner tree"""
     __slots__ = []
 
-    HASH_HMAC_KEY = None
+    TAG = None
 
     SUM_IDENTITY = 0
 
@@ -234,8 +234,9 @@ def make_MerbinnerTree_subclass(subclass):
     @subclass.declare_union_subclass
     class MerbinnerTreeEmptyNodeClass(subclass):
         """The empty node"""
-        __slots__ = []
+        SUB_HASHTAG = proofmarshal.proof.HashTag('ca380e10-c7d5-44df-aef0-55bce2125329')
 
+        __slots__ = []
         SERIALIZED_ATTRS = []
 
         prefix = Bits()
@@ -271,8 +272,9 @@ def make_MerbinnerTree_subclass(subclass):
     @subclass.declare_union_subclass
     class MerbinnerTreeLeafNode(subclass):
         """Leaf node"""
-        __slots__ = ['key','value']
+        SUB_HASHTAG = proofmarshal.proof.HashTag('f5cc855e-9d21-4f8d-ab42-7883c765c323')
 
+        __slots__ = ['key','value']
         SERIALIZED_ATTRS = [('key',   subclass.KEY_SERIALIZER),
                             ('value', subclass.VALUE_SERIALIZER)]
 
@@ -308,8 +310,9 @@ def make_MerbinnerTree_subclass(subclass):
     @subclass.declare_union_subclass
     class MerbinnerTreeInnerNode(subclass):
         """Inner node, contains two children"""
-        __slots__ = ['left','right','prefix']
+        SUB_HASHTAG = proofmarshal.proof.HashTag('66d74741-0ffd-4178-9a79-641a45e23dda')
 
+        __slots__ = ['left','right','prefix']
         SERIALIZED_ATTRS = [('prefix', BitsSerializer),
                             ('left',  subclass),
                             ('right', subclass)]

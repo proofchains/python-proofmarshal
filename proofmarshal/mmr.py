@@ -15,7 +15,6 @@ import operator
 
 import proofmarshal.proof
 
-
 """(Summed) Merkle Mountain Range support
 
 Motivation
@@ -207,7 +206,7 @@ class MerkleMountainRange(proofmarshal.proof.ProofUnion):
     """Merkle Mountain Range"""
     __slots__ = []
 
-    HASH_HMAC_KEY = None
+    TAG = None
     VALUE_SERIALIZER = None
 
     def __new__(cls, iterable=()):
@@ -275,8 +274,9 @@ def make_mmr_subclass(subclass):
     @subclass.declare_union_subclass
     class MerkleMountainRangeEmptyNode(subclass):
         """Empty node"""
-        __slots__ = []
+        SUB_HASHTAG = proofmarshal.proof.HashTag('390de307-8787-47b7-b25d-250aba02b1e5')
 
+        __slots__ = []
         SERIALIZED_ATTRS = []
 
         __instance = None
@@ -322,8 +322,9 @@ def make_mmr_subclass(subclass):
     @subclass.declare_union_subclass
     class MerkleMountainRangeLeafNode(subclass):
         """Inner node"""
-        __slots__ = ['value']
+        SUB_HASHTAG = proofmarshal.proof.HashTag('4ea09c8e-87f5-4978-a829-78d42ab8638a')
 
+        __slots__ = ['value']
         SERIALIZED_ATTRS = [('value', subclass.VALUE_SERIALIZER)]
 
         def __new__(cls, value):
@@ -379,8 +380,9 @@ def make_mmr_subclass(subclass):
     @subclass.declare_union_subclass
     class MerkleMountainRangeInnerNode(subclass):
         """Inner node"""
-        __slots__ = ['left',  'right', 'length']
+        SUB_HASHTAG = proofmarshal.proof.HashTag('a7ca25ce-8fee-4063-b022-96b2dbcb392e')
 
+        __slots__ = ['left',  'right', 'length']
         SERIALIZED_ATTRS = [('left',  subclass),
                             ('right', subclass),
                             ('length', proofmarshal.serialize.UInt64)]
