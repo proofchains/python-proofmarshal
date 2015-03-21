@@ -234,8 +234,8 @@ class Proof(HashingSerializer):
         return '%s.%s(<%s>)' % (self.__class__.__module__, self.__class__.__qualname__,
                                 binascii.hexlify(self.hash).decode('utf8'))
 
-class ProofUnion(Proof):
-    """Serialization of unions of Proofs"""
+class VarProof(Proof):
+    """Serialization of Proofs with mutliple varient subclasses"""
     __slots__ = []
 
     UNION_CLASSES = None
@@ -249,13 +249,13 @@ class ProofUnion(Proof):
             raise SerializerTypeError('Class %r is not part of the %r union' % (value.__class__, cls))
 
     @classmethod
-    def declare_union_subclass(cls, subclass):
-        """Class decorator to make a subclass part of a ProofUnion
+    def declare_variant(cls, subclass):
+        """Class decorator to make a subclass part of a VarProof
 
         The HASHTAG for the subclass will be derived from for you.
         """
-        if not issubclass(subclass, ProofUnion):
-            raise TypeError('Only ProofUnion subclasses can be part of a ProofUnion')
+        if not issubclass(subclass, VarProof):
+            raise TypeError('Only VarProof subclasses can be part of a VarProof')
 
         if cls.UNION_CLASSES is None:
             cls.UNION_CLASSES = []
@@ -287,4 +287,4 @@ class ProofUnion(Proof):
             # FIXME: nicer error message
             raise DeserializationError('bad union class number %d' % i)
 
-        return super(ProofUnion, union_cls)._ctx_deserialize(ctx)
+        return super(VarProof, union_cls)._ctx_deserialize(ctx)

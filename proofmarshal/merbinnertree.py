@@ -83,7 +83,7 @@ unique for the items under it.
 """
 
 
-class MerbinnerTree(proofmarshal.proof.ProofUnion):
+class MerbinnerTree(proofmarshal.proof.VarProof):
     """Merbinner tree"""
     __slots__ = []
 
@@ -231,7 +231,7 @@ class MerbinnerTree(proofmarshal.proof.ProofUnion):
             return self._MerbinnerTree__issubset(other)
 
 def make_MerbinnerTree_subclass(subclass):
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerbinnerTreeEmptyNodeClass(subclass):
         """The empty node"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('ca380e10-c7d5-44df-aef0-55bce2125329')
@@ -246,7 +246,7 @@ def make_MerbinnerTree_subclass(subclass):
             if cls.__instance is not None:
                 return cls.__instance
             else:
-                singleton = proofmarshal.proof.ProofUnion.__new__(cls)
+                singleton = proofmarshal.proof.VarProof.__new__(cls)
                 cls.__instance = singleton
                 return singleton
 
@@ -269,7 +269,7 @@ def make_MerbinnerTree_subclass(subclass):
 
     subclass.EmptyNodeClass = MerbinnerTreeEmptyNodeClass
 
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerbinnerTreeLeafNode(subclass):
         """Leaf node"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('f5cc855e-9d21-4f8d-ab42-7883c765c323')
@@ -284,7 +284,7 @@ def make_MerbinnerTree_subclass(subclass):
 
         def __new__(cls, key, value):
             """Create a merbinner tree leaf node"""
-            return proofmarshal.proof.ProofUnion.__new__(cls, key=key, value=value)
+            return proofmarshal.proof.VarProof.__new__(cls, key=key, value=value)
 
         def __len__(self):
             return 1
@@ -307,7 +307,7 @@ def make_MerbinnerTree_subclass(subclass):
 
     subclass.LeafNodeClass = MerbinnerTreeLeafNode
 
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerbinnerTreeInnerNode(subclass):
         """Inner node, contains two children"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('66d74741-0ffd-4178-9a79-641a45e23dda')
@@ -337,7 +337,7 @@ def make_MerbinnerTree_subclass(subclass):
             # order by the next bit after us.
             left,right = (first,second) if second.prefix[len(prefix)] else (second, first)
 
-            return proofmarshal.proof.ProofUnion.__new__(cls, left=left, right=right, prefix=prefix)
+            return proofmarshal.proof.VarProof.__new__(cls, left=left, right=right, prefix=prefix)
 
         def __len__(self):
             return len(self.left) + len(self.right)

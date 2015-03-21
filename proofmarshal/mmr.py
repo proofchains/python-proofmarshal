@@ -202,7 +202,7 @@ For there to exist two proofs P and P' that prove contradictory statements there
 
 """
 
-class MerkleMountainRange(proofmarshal.proof.ProofUnion):
+class MerkleMountainRange(proofmarshal.proof.VarProof):
     """Merkle Mountain Range"""
     __slots__ = []
 
@@ -271,7 +271,7 @@ class MerkleMountainRange(proofmarshal.proof.ProofUnion):
 
 
 def make_mmr_subclass(subclass):
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerkleMountainRangeEmptyNode(subclass):
         """Empty node"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('390de307-8787-47b7-b25d-250aba02b1e5')
@@ -319,7 +319,7 @@ def make_mmr_subclass(subclass):
 
     subclass.EmptyNodeClass = MerkleMountainRangeEmptyNode
 
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerkleMountainRangeLeafNode(subclass):
         """Inner node"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('4ea09c8e-87f5-4978-a829-78d42ab8638a')
@@ -377,7 +377,7 @@ def make_mmr_subclass(subclass):
     subclass.LeafNodeClass = MerkleMountainRangeLeafNode
 
 
-    @subclass.declare_union_subclass
+    @subclass.declare_variant
     class MerkleMountainRangeInnerNode(subclass):
         """Inner node"""
         SUB_HASHTAG = proofmarshal.proof.HashTag('a7ca25ce-8fee-4063-b022-96b2dbcb392e')
