@@ -11,6 +11,7 @@
 
 import binascii
 import copy
+import hashlib
 
 from proofmarshal.serialize import HashingSerializer, BytesSerializationContext, SerializerTypeError, HashTag
 
@@ -36,7 +37,7 @@ class Proof(HashingSerializer):
     """
     HASHTAG = None
 
-    __slots__ = ['is_pruned', 'is_fully_pruned','__orig_instance','hash']
+    __slots__ = ['is_pruned', 'is_fully_pruned','__orig_instance','data_hash','hash']
     SERIALIZED_ATTRS = ()
     SERIALIZED_ATTRS_BY_NAME = None
 
@@ -105,8 +106,13 @@ class Proof(HashingSerializer):
         return pruned_self
 
     def __getattr__(self, name):
-        # Special-case hash to let it be calculated lazily
-        if name == 'hash':
+        # Special-case (data)_hash to let it be calculated lazily
+        if name == 'data_hash':
+            data_hash = self.calc_data_hash()
+            object.__setattr__(self, 'data_hash', data_hash)
+            return data_hash
+
+        elif name == 'hash':
             hash = self.calc_hash()
             object.__setattr__(self, 'hash', hash)
             return hash
@@ -142,14 +148,14 @@ class Proof(HashingSerializer):
             object.__setattr__(self, 'is_fully_pruned', False)
             return value
 
-    def calc_hash(self):
+    def calc_data_hash(self):
         if self.__orig_instance is not None:
             # Avoid unpruning unnecessarily
-            return self.__orig_instance.hash
+            return self.__orig_instance.data_hash
 
         else:
             # FIXME: catch pruning errors; should never happen
-            hasher = self.HASHTAG()
+            hasher = hashlib.sha256()
 
             for attr_name, ser_cls in self.SERIALIZED_ATTRS:
                 attr_value = getattr(self, attr_name)
@@ -162,6 +168,14 @@ class Proof(HashingSerializer):
 
             return hasher.digest()
 
+    def calc_hash(self):
+        if self.__orig_instance is not None:
+            # Avoid unpruning unnecessarily
+            return self.__orig_instance.hash
+
+        else:
+            return self.HASHTAG(self.data_hash).digest()
+
     def get_hash(self):
         return self.hash
 
@@ -173,7 +187,7 @@ class Proof(HashingSerializer):
     def ctx_serialize(self, ctx):
         if self.is_fully_pruned:
             ctx.write_bool(True)
-            ctx.write_bytes(self.hash)
+            ctx.write_bytes(self.data_hash)
 
         else:
             ctx.write_bool(False)
@@ -203,8 +217,8 @@ class Proof(HashingSerializer):
         if fully_pruned:
             self = object.__new__(cls)
 
-            hash = ctx.read_bytes(32) # FIXME
-            object.__setattr__(self, 'hash', hash)
+            data_hash = ctx.read_bytes(32) # FIXME
+            object.__setattr__(self, 'data_hash', data_hash)
 
             object.__setattr__(self, 'is_fully_pruned', True)
             object.__setattr__(self, 'is_pruned', True)

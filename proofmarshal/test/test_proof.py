@@ -97,7 +97,7 @@ class Test_Proof(unittest.TestCase):
         f_pruned = f.prune()
 
         self.assertEqual(f_pruned.serialize(),
-                         b'\xff' + f_pruned.hash)
+                         b'\xff' + f_pruned.data_hash)
 
     def test_fully_pruned_deserialization(self):
         """Serialization of fully pruned proofs"""
@@ -105,7 +105,7 @@ class Test_Proof(unittest.TestCase):
 
         self.assertTrue(f.is_pruned)
         self.assertTrue(f.is_fully_pruned)
-        self.assertEqual(f.hash, b'\x00'*32)
+        self.assertEqual(f.data_hash, b'\x00'*32)
 
     def test_pruned_serialization(self):
         """Serialization of pruned proofs"""
@@ -124,16 +124,16 @@ class Test_Proof(unittest.TestCase):
 
         self.assertEqual(b.serialize(),
                          (b'\x00' + # not pruned
-                          b'\xff' + f1.hash + # left fully pruned
-                          b'\xff' + f2.hash + # right fully pruned
+                          b'\xff' + f1.data_hash + # left fully pruned
+                          b'\xff' + f2.data_hash + # right fully pruned
                           b'\x03')) # non-proof attribute
 
         # Depend on b.left.hash, which does *not* change the serialization
         self.assertEqual(b.left.hash, f1.hash)
         self.assertEqual(b.serialize(),
                          (b'\x00' + # not pruned
-                          b'\xff' + f1.hash + # left fully pruned
-                          b'\xff' + f2.hash + # right fully pruned
+                          b'\xff' + f1.data_hash + # left fully pruned
+                          b'\xff' + f2.data_hash + # right fully pruned
                           b'\x03')) # non-proof attribute
 
         # Using b.left.n however does unprune b.left, changing the serialization
@@ -141,7 +141,7 @@ class Test_Proof(unittest.TestCase):
         self.assertEqual(b.serialize(),
                          (b'\x00' + # not pruned
                           b'\x00' + b'\x01' + # left not pruned
-                          b'\xff' + f2.hash + # right fully pruned
+                          b'\xff' + f2.data_hash + # right fully pruned
                           b'\x03')) # non-proof attribute
 
     def test_pruned_deserialization(self):
@@ -245,7 +245,8 @@ class Test_ProofUnion(unittest.TestCase):
 
     def test_hashing(self):
         def H(cls, msg):
-            return hashlib.sha256(cls.HASHTAG + msg).digest()
+            data_hash = hashlib.sha256(msg).digest()
+            return hashlib.sha256(cls.HASHTAG + data_hash).digest()
 
         empty = EmptyFooUnion()
         expected_empty_hash = H(EmptyFooUnion, b'')
