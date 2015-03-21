@@ -264,3 +264,51 @@ class Test_VarProof(unittest.TestCase):
         self.assertNotEqual(FooVarProof.HASHTAG, DerivedHmacFooVarProof.HASHTAG)
         self.assertEqual(DerivedHmacFooVarProof.HASHTAG,
                          HashTag('498430c5-4ed1-8dd5-3f09-97e0725c3407'))
+
+
+class Test_ProofUnion(unittest.TestCase):
+    Foo_or_Bar = ProofUnion(FooProof, BarProof)
+
+    def test_checkinstance(self):
+        self.Foo_or_Bar.check_instance(FooProof(n=1))
+        self.Foo_or_Bar.check_instance(BarProof(left=FooProof(n=1),
+                                                right=FooProof(n=2),
+                                                nonproof_attr=3))
+
+        with self.assertRaises(SerializerTypeError):
+            self.Foo_or_Bar.check_instance(None)
+
+    def test_serialization(self):
+        f1 = FooProof(n=1)
+        b1 = BarProof(left=FooProof(n=1), right=FooProof(n=2), nonproof_attr=3)
+
+        self.assertEqual(self.Foo_or_Bar.serialize(f1), b'\x00\x00\x01')
+        self.assertEqual(self.Foo_or_Bar.serialize(b1), b'\x01\x00\x00\x01\x00\x02\x03')
+
+        b1_pruned = b1.prune()
+        self.assertEqual(self.Foo_or_Bar.serialize(b1_pruned),
+                         b'\x01\xff' + b1_pruned.data_hash)
+
+    def test_deserialization(self):
+        f1a = FooProof(n=1)
+
+        f1b = self.Foo_or_Bar.deserialize(b'\x00\x00\x01')
+        self.assertEqual(f1a, f1b)
+        self.assertFalse(f1b.is_pruned)
+
+        b1a = BarProof(left=FooProof(n=1), right=FooProof(n=2), nonproof_attr=3)
+
+        b1b = self.Foo_or_Bar.deserialize(b'\x01\x00\x00\x01\x00\x02\x03')
+        self.assertEqual(b1a, b1b)
+        self.assertFalse(b1b.is_pruned)
+
+        b1b_pruned = self.Foo_or_Bar.deserialize(b'\x01\xff' + b1a.data_hash)
+        self.assertEqual(b1a, b1b_pruned)
+        self.assertTrue(b1b_pruned.is_fully_pruned)
+
+    def test_hashing(self):
+        f1 = FooProof(n=1)
+        b1 = BarProof(left=FooProof(n=1), right=FooProof(n=2), nonproof_attr=3)
+
+        self.assertEqual(self.Foo_or_Bar.get_hash(f1), f1.hash)
+        self.assertEqual(self.Foo_or_Bar.get_hash(b1), b1.hash)

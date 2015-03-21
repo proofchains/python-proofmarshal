@@ -288,3 +288,55 @@ class VarProof(Proof):
             raise DeserializationError('bad union class number %d' % i)
 
         return super(VarProof, union_cls)._ctx_deserialize(ctx)
+
+class ProofUnion(HashingSerializer):
+    """Serialization of disjoint unions of proof classes
+
+    Used when you want to serialize multiple classes that don't share any
+    common ancestors. (other than Proof itself)
+    """
+
+    @classmethod
+    def check_instance(cls, value):
+        for cls in cls.UNION_CLASSES:
+            if isinstance(value, cls):
+                break
+        else:
+            raise SerializerTypeError('Class %r is not part of the %r union' % (value.__class__, cls))
+
+    def __new__(cls, *union_classes):
+        for i, union_class in enumerate(union_classes):
+            assert issubclass(union_class, Proof)
+
+        class r(ProofUnion):
+            UNION_CLASSES  = tuple(union_classes)
+
+        r.__name__ = 'ProofUnion(%s)' % ','.join([ucls.__name__ for ucls in union_classes])
+        return r
+
+    @classmethod
+    def get_hash(cls, obj):
+        return obj.hash
+
+    @classmethod
+    def ctx_serialize(cls, self, ctx):
+        for i,cls in enumerate(cls.UNION_CLASSES):
+            if isinstance(self, cls):
+                ctx.write_varuint(i)
+                cls.ctx_serialize(self, ctx)
+                break
+
+        else:
+            raise SerializerTypeError('bad class')
+
+    @classmethod
+    def ctx_deserialize(cls, ctx):
+        i = ctx.read_varuint()
+
+        try:
+            union_cls = cls.UNION_CLASSES[i]
+        except IndexError:
+            # FIXME: nicer error message
+            raise DeserializationError('bad union class number %d' % i)
+
+        return union_cls.ctx_deserialize(ctx)
