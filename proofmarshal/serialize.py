@@ -329,6 +329,57 @@ class FixedBytes(Serializer):
     def ctx_deserialize(cls, ctx):
         return ctx.read_bytes(cls.EXPECTED_LENGTH)
 
+class VarBytes(Serializer):
+    """Serialization of variable-length byte arrays"""
+    MAX_LENGTH = None
+    MIN_LENGTH = None
+
+    def __new__(cls, max_or_min_length, max_length=None):
+        min_length = 0
+        if max_length is None:
+             max_length = max_or_min_length
+        else:
+            min_length = max_or_min_length
+
+        if not (isinstance(max_length, int) and isinstance(min_length, int)):
+            raise TypeError('max and min lengths must be integers')
+        if not (0 <= min_length < max_length):
+            raise ValueError('min and max length must satisfy 0 <= min_length < max_length; got 0 <= %d < %d' % \
+                                (min_length, max_length))
+
+        # Slightly evil...
+        class r(VarBytes):
+            MAX_LENGTH = max_length
+            MIN_LENGTH = min_length
+
+        if min_length:
+            r.__name__ = 'VarBytes(%d,%d)' % (min_length, max_length)
+        else:
+            r.__name__ = 'VarBytes(%d)' % max_length
+        return r
+
+    @classmethod
+    def check_instance(cls, value):
+        if value.__class__ is not bytes:
+            raise SerializerTypeError('Expected bytes; got %r' % value.__class__)
+
+        if not (cls.MIN_LENGTH <= len(value) <= cls.MAX_LENGTH):
+            raise SerializerValueError('Bad length; %d not in range (%d, %d)' % \
+                                           (len(value), cls.MIN_LENGTH, cls.MAX_LENGTH))
+
+    @classmethod
+    def ctx_serialize(cls, self, ctx):
+        ctx.write_varuint(len(self))
+        ctx.write_bytes(self)
+
+    @classmethod
+    def ctx_deserialize(cls, ctx):
+        l = ctx.read_varuint()
+        if not (cls.MIN_LENGTH <= l <= cls.MAX_LENGTH):
+            raise DeserializationError('Serialized length out of range; %d not in range (%d,%d)' % \
+                                           (l, cls.MIN_LENGTH, cls.MAX_LENGTH))
+        return ctx.read_bytes(l)
+
 class Digest(FixedBytes):
     EXPECTED_LENGTH = DIGEST_LENGTH
 
