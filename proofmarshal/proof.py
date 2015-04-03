@@ -10,15 +10,22 @@
 # LICENSE file.
 
 import binascii
+import collections
 import copy
 import hashlib
 
-from proofmarshal.serialize import HashingSerializer, BytesSerializationContext, SerializerTypeError, HashTag
+from proofmarshal.serialize import Digest, HashingSerializer, BytesSerializationContext, SerializerTypeError, HashTag
+
+from proofmarshal.bits import Bits, BitsSerializer
+from proofmarshal.serialize import UInt8
 
 """Proof representation
 
 Provides Proof and PrunedProof classes to represent complex, immutable,
-cryptographic proofs that may have dependent proofs pruned away.
+cryptographic proofs that may have dependent proofs pruned away. Proofs have
+cryptographically secure hashes, which commit to the facts proven by the proof,
+as well as the facts used to prove those facts. Finally proofs can be pruned,
+leaving a subset of data that is only capable of proving certain facts.
 
 """
 
@@ -28,315 +35,255 @@ class PrunedError(Exception):
         self.instance = instance
         super().__init__('Attribute %r not available, pruned away.' % attr_name)
 
+class proof_result:
+    def __init__(self, func, name=None):
+        self.func = func
+
+        self.name = name
+        if self.name is None:
+            assert self.func.__name__.startswith('__calc_result_')
+            self.name = self.func.__name__[len('__calc_result_'):]
+
+    def __call__(self, instance_self):
+        print('calculating result %s on %r' % (self.name, instance_self))
+        return self.func(instance_self)
+
+def declare_proof_class(cls):
+    # Start with the set of all active axioms from our base class.
+    active_axioms = getattr(cls.__base__, 'ACTIVE_AXIOMS', collections.OrderedDict()).copy()
+
+    # Replace previously defined axioms with results declared in this class.
+    cls.RESULTS_BY_NAME = getattr(cls.__base__, 'RESULTS_BY_NAME', {}).copy()
+
+    for result in cls.__dict__.values():
+        if isinstance(result, proof_result):
+            cls.RESULTS_BY_NAME[result.name] = result
+            active_axioms.pop(result.name, None)
+
+    # Special case for __inner_hash, as a result calculator needs to be added
+    # for every subclass.
+    if active_axioms:
+        prev_axiom_class = tuple(cls.ACTIVE_AXIOMS_BY_CLASS.keys())[-1]
+        result = proof_result(cls._calc__inner_hash, '_%s__inner_hash' % prev_axiom_class.__name__)
+
+        cls.RESULTS_BY_NAME[result.name] = result
+        del active_axioms[result.name] # if this doesn't succeed, something is wrong!
+
+
+    # Add new axioms to the set of active axioms
+    for axiom_name, axiom_type in cls.AXIOMS:
+        if axiom_name == '__inner_hash':
+            axiom_name = '_%s__inner_hash' % cls.__name__
+        assert axiom_name not in active_axioms
+        active_axioms[axiom_name] = axiom_type
+
+    cls.ACTIVE_AXIOMS = active_axioms
+
+    active_axioms_by_class = getattr(cls.__base__, 'ACTIVE_AXIOMS_BY_CLASS', collections.OrderedDict()).copy()
+    active_axioms_by_class[cls] = cls.ACTIVE_AXIOMS
+    cls.ACTIVE_AXIOMS_BY_CLASS = active_axioms_by_class
+    return cls
+
+@declare_proof_class
 class Proof(HashingSerializer):
     """Base class for all proof objects
 
-    Proofs are structures that support pruning, automatically track
-    dependencies, and can be (partially) validated.
+    Proofs use axioms to prove results. Proofs can be pruned, leaving a data
+    structure with the results saved, while the axioms used to prove those
+    results are discarded. Proofs can be subclassed; a subclass of a proof can
+    replace some or all of the base class's axioms with results, or per-class
+    constants.
+
+    The most basic result - common to all Proofs - is the hash of the proof,
+    which is calculated from the proof type and inner_hash. In a bare Proof
+    class the type and inner_hash are both axioms; in subclasses the type is a
+    per-class constant, and the inner_hash is a result calculated from the
+    contents of the proof.
 
     """
-    HASHTAG = None
 
-    __slots__ = ['is_pruned', 'is_fully_pruned','__orig_instance','data_hash','hash']
-    SERIALIZED_ATTRS = ()
-    SERIALIZED_ATTRS_BY_NAME = None
+    AXIOMS = [('__inner_hash', Digest)]
 
-    def __new__(cls, **kwargs):
-        """Basic creation/initialization"""
-        if cls.SERIALIZED_ATTRS_BY_NAME is None:
-            cls.SERIALIZED_ATTRS_BY_NAME = {name:ser_cls for name, ser_cls in cls.SERIALIZED_ATTRS}
+    def __getattr__(self, attr_name):
+        try:
+            orig_instance = object.__getattribute__(self, '_Proof__orig_instance')
+        except AttributeError as err:
+            # We are not pruned. This is either a calculatable result, or an
+            # error.
+            result_calc_func = self.RESULTS_BY_NAME.get(attr_name, None)
+            if result_calc_func is not None:
+                result = result_calc_func(self)
+                object.__setattr__(self, attr_name, result)
+                return result
 
-        is_pruned = False
-        self = object.__new__(cls)
-        for name, ser_cls in cls.SERIALIZED_ATTRS_BY_NAME.items():
-            value = kwargs[name]
-            ser_cls.check_instance(value)
-            object.__setattr__(self, name, value)
-
-            if issubclass(ser_cls, Proof):
-                is_pruned |= value.is_pruned
-
-        object.__setattr__(self, 'is_fully_pruned', False)
-        object.__setattr__(self, 'is_pruned', is_pruned)
-        object.__setattr__(self, '_Proof__orig_instance', None)
-        return self
-
-    @classmethod
-    def check_instance(cls, instance):
-        """Check that an instance can be serialized by this serializer
-
-        Raises SerializerTypeError if not
-        """
-        # FIXME
-
-    def __eq__(self, other):
-        if isinstance(other, Proof):
-            return self.hash == other.hash
-
-        else:
-            return NotImplemented
-
-    def __hash__(self):
-        # We could return self.hash directly, however that might cause problems
-        # in cases where the Proof object has had some kind of PoW applied to
-        # it to brute-force the hash.
-        return hash(self.hash)
-
-    def __setattr__(self, name, value):
-        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
-
-    def __delattr__(self, name):
-        raise TypeError('%s instances are immutable' % self.__class__.__qualname__)
-
-    def prune(self):
-        """Create a pruned version of this proof
-
-        Returns a new instance with all attributes removed. A reference to the
-        original instance is maintained, and used to unprune attributes as they
-        are used.
-        """
-
-        # Start with a blank instance with absolutely no attributes set at all.
-        pruned_self = object.__new__(self.__class__)
-
-        object.__setattr__(pruned_self, '_Proof__orig_instance', self)
-        object.__setattr__(pruned_self, 'is_fully_pruned', True)
-        object.__setattr__(pruned_self, 'is_pruned', True)
-
-        return pruned_self
-
-    def __getattr__(self, name):
-        # Special-case (data)_hash to let it be calculated lazily
-        if name == 'data_hash':
-            data_hash = self.calc_data_hash()
-            object.__setattr__(self, 'data_hash', data_hash)
-            return data_hash
-
-        elif name == 'hash':
-            hash = self.calc_hash()
-            object.__setattr__(self, 'hash', hash)
-            return hash
-
-        if self.__orig_instance is None:
-            # Don't have the original instance. Is this an attribute we should
-            # have?
-            if name in self.SERIALIZED_ATTRS_BY_NAME:
-                # FIXME: raise pruning error
-                raise PrunedError(name, self)
             else:
-                raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
+                # FIXME: is this the best way to get a nice error message?
+                object.__getattribute__(self, attr_name)
 
         else:
-            assert self.is_pruned
+            # We are pruned. Get the value from the original instance.
+            value = getattr(orig_instance, attr_name)
 
-            # We are pruned. Try getting that attribute from the original,
-            # non-pruned, instance. If it doesn't exist, the above code will throw
-            # an exception as expected.
-            value = getattr(self.__orig_instance, name)
-
-            # If the value is itself a proof, prune it to track dependencies
-            # recursively.
             if isinstance(value, Proof):
                 value = value.prune()
 
-            # For efficiency, we can now add that value to self to avoid going
-            # through this process over again.
-            object.__setattr__(self, name, value)
+            object.__setattr__(self, attr_name, value)
 
-            # We succesfully brought something back into view, which means this
-            # instance must not be fully pruned.
-            object.__setattr__(self, 'is_fully_pruned', False)
+            # Record the pruning level.
+            level = self.__class__
+            while level is not self.__pruning_level:
+                try:
+                    if attr_name in level.__base__.ACTIVE_AXIOMS:
+                        level = level.__base__
+                    else:
+                        break
+                except AttributeError:
+                    break
+
+            self.__pruning_level = level
+
             return value
 
-    def calc_data_hash(self):
-        if self.__orig_instance is not None:
-            # Avoid unpruning unnecessarily
-            return self.__orig_instance.data_hash
+    @proof_result
+    def __calc_result_hash(self) -> Digest:
+        return self.HASHTAG(self.__inner_hash).digest()
 
-        else:
-            # FIXME: catch pruning errors; should never happen
-            hasher = hashlib.sha256()
+    @classmethod
+    def _calc__inner_hash(cls, self) -> Digest:
+        print('_calc__inner_hash(%r, %r)' % (cls, self))
+        hasher = hashlib.sha256()
+        for axiom_name, axiom_class in cls.ACTIVE_AXIOMS.items():
+            axiom_value = getattr(self, axiom_name)
+            if issubclass(axiom_class, HashingSerializer):
+                hasher.update(axiom_class.get_hash(axiom_value))
 
-            for attr_name, ser_cls in self.SERIALIZED_ATTRS:
-                attr_value = getattr(self, attr_name)
+            else:
+                hasher.update(axiom_class.serialize(axiom_value))
 
-                if issubclass(ser_cls, HashingSerializer):
-                    hasher.update(ser_cls.get_hash(attr_value))
+        return hasher.digest()
 
-                else:
-                    hasher.update(ser_cls.serialize(attr_value))
+    def prune(self):
+        """Create a pruned version of this prooF
 
-            return hasher.digest()
+        Returns a new instance with all results and axioms removed. A reference
+        to the original instance is maintained, and used to determine what
+        axioms are needed.
+        """
 
-    def calc_hash(self):
-        if self.__orig_instance is not None:
-            # Avoid unpruning unnecessarily
-            return self.__orig_instance.hash
+        pruned_self = object.__new__(self.__class__)
 
-        else:
-            return self.HASHTAG(self.data_hash).digest()
+        object.__setattr__(pruned_self, '_Proof__orig_instance', self)
+        object.__setattr__(pruned_self, '_Proof__pruning_level', Proof)
+        return pruned_self
 
     def get_hash(self):
         return self.hash
 
-    def _ctx_serialize(self, ctx):
-        for attr_name, ser_cls in self.SERIALIZED_ATTRS:
-            attr = getattr(self, attr_name)
-            ser_cls.ctx_serialize(attr, ctx)
-
-    def ctx_serialize(self, ctx):
-        if self.is_fully_pruned:
-            ctx.write_bool(True)
-            ctx.write_bytes(self.data_hash)
-
-        else:
-            ctx.write_bool(False)
-            self._ctx_serialize(ctx)
-
-
-    def serialize(self):
-        """Serialize to bytes"""
-        ctx = BytesSerializationContext()
-        self.ctx_serialize(ctx)
-        return ctx.getbytes()
-
-    @classmethod
-    def _ctx_deserialize(cls, ctx):
-        kwargs = {}
-
-        for name, ser_cls in cls.SERIALIZED_ATTRS:
-            value = ser_cls.ctx_deserialize(ctx)
-            kwargs[name] = value
-
-        return Proof.__new__(cls, **kwargs)
-
-    @classmethod
-    def ctx_deserialize(cls, ctx):
-        fully_pruned = ctx.read_bool()
-
-        if fully_pruned:
-            self = object.__new__(cls)
-
-            data_hash = ctx.read_bytes(32) # FIXME
-            object.__setattr__(self, 'data_hash', data_hash)
-
-            object.__setattr__(self, 'is_fully_pruned', True)
-            object.__setattr__(self, 'is_pruned', True)
-            object.__setattr__(self, '_Proof__orig_instance', None)
-
-            return self
-
-        else:
-            return cls._ctx_deserialize(ctx)
-
-    def __repr__(self):
-        # FIXME: better way to get a fully qualified name?
-        return '%s.%s(<%s>)' % (self.__class__.__module__, self.__class__.__qualname__,
-                                binascii.hexlify(self.hash).decode('utf8'))
-
 class VarProof(Proof):
-    """Serialization of Proofs with mutliple varient subclasses"""
-    __slots__ = []
+    """Proofs with multiple variants"""
+    @proof_result
+    def __calc_result_inner_hash(self) -> Digest:
+        cls = self.__class__
+        while cls.__base__ != BaseProof:
+            cls = cls.__base__
 
-    UNION_CLASSES = None
+        print('axiom class is %r' % cls)
+        hasher = hashlib.sha256()
+        for axiom_name, axiom_class in cls.ACTIVE_AXIOMS.items():
+            axiom_value = getattr(self, axiom_name)
+            if issubclass(axiom_class, HashingSerializer):
+                hasher.update(axiom_class.get_hash(axiom_value))
 
-    @classmethod
-    def check_instance(cls, value):
-        for cls in cls.UNION_CLASSES:
-            if isinstance(value, cls):
-                break
-        else:
-            raise SerializerTypeError('Class %r is not part of the %r union' % (value.__class__, cls))
+            else:
+                hasher.update(axiom_class.serialize(axiom_value))
 
-    @classmethod
-    def declare_variant(cls, subclass):
-        """Class decorator to make a subclass part of a VarProof
+        return hasher.digest()
 
-        The HASHTAG for the subclass will be derived from for you.
-        """
-        if not issubclass(subclass, VarProof):
-            raise TypeError('Only VarProof subclasses can be part of a VarProof')
+@declare_proof_class
+class Tree(Proof):
+    HASHTAG = HashTag('21362f98-10d3-4f52-b13d-6355680413cd')
+    AXIOMS = [('prefix', BitsSerializer),
+              ('sum', UInt8),
+              ('__inner_hash', Digest)]
 
-        if cls.UNION_CLASSES is None:
-            cls.UNION_CLASSES = []
+    def __init__(self, prefix : Bits, sum : int):
+        self.prefix = prefix
+        self.sum = sum
 
-        subclass.HASHTAG = subclass.SUB_HASHTAG.derive(cls.HASHTAG)
+    def __getitem__(self, prefix) -> int:
+        raise NotImplementedError
 
-        cls.UNION_CLASSES.append(subclass)
+@declare_proof_class
+class LeafNode(Tree):
+    AXIOMS = [('key', BitsSerializer),
+              ('value', UInt8)]
 
-        return subclass
+    def __init__(self, key : Bits, value : int):
+        self.key = key
+        self.value = value
 
-    def _ctx_serialize(self, ctx):
-        for i,cls in enumerate(self.UNION_CLASSES):
-            if isinstance(self, cls):
-                ctx.write_varuint(i)
-                break
+    @proof_result
+    def __calc_result_sum(self) -> int:
+        return self.value
 
-        else:
-            raise SerializerTypeError('bad class')
+    @proof_result
+    def __calc_result_prefix(self) -> Bits:
+        return self.key
 
-        super()._ctx_serialize(ctx)
+    def __getitem__(self, prefix) -> int:
+        return self.value
 
-    @classmethod
-    def _ctx_deserialize(cls, ctx):
-        i = ctx.read_varuint()
+@declare_proof_class
+class InnerNode(Tree):
+    AXIOMS = [('left', Tree),
+              ('right', Tree)]
 
-        try:
-            union_cls = cls.UNION_CLASSES[i]
-        except IndexError:
-            # FIXME: nicer error message
-            raise DeserializationError('bad union class number %d' % i)
+    def __init__(self, left : Tree, right : Tree):
+        self.left = left
+        self.right = right
 
-        return super(VarProof, union_cls)._ctx_deserialize(ctx)
+    @proof_result
+    def __calc_result_sum(self) -> int:
+        return self.left.sum + self.right.sum
 
-class ProofUnion(HashingSerializer):
-    """Serialization of disjoint unions of proof classes
+    @proof_result
+    def __calc_result_prefix(self) -> Bits:
+        return Bits.common_prefix(self.left.prefix, self.right.prefix)
 
-    Used when you want to serialize multiple classes that don't share any
-    common ancestors. (other than Proof itself)
-    """
+    def __getitem__(self, prefix) -> int:
+        raise NotImplementedError
 
-    @classmethod
-    def check_instance(cls, value):
-        for cls in cls.UNION_CLASSES:
-            if isinstance(value, cls):
-                break
-        else:
-            raise SerializerTypeError('Class %r is not part of the %r union' % (value.__class__, cls))
+@declare_proof_class
+class EmptyNode(Tree):
+    AXIOMS = []
 
-    def __new__(cls, *union_classes):
-        for i, union_class in enumerate(union_classes):
-            assert issubclass(union_class, Proof)
+    def __init__(self):
+        pass
 
-        class r(ProofUnion):
-            UNION_CLASSES  = tuple(union_classes)
+    @proof_result
+    def __calc_result_sum(self) -> int:
+        return 0
 
-        r.__name__ = 'ProofUnion(%s)' % ','.join([ucls.__name__ for ucls in union_classes])
-        return r
+    @proof_result
+    def __calc_result_prefix(self) -> Bits:
+        return Bits()
 
-    @classmethod
-    def get_hash(cls, obj):
-        return obj.hash
+    def __getitem__(self, prefix) -> int:
+        raise KeyError(prefix)
 
-    @classmethod
-    def ctx_serialize(cls, self, ctx):
-        for i,cls in enumerate(cls.UNION_CLASSES):
-            if isinstance(self, cls):
-                ctx.write_varuint(i)
-                cls.ctx_serialize(self, ctx)
-                break
+l00 = LeafNode(Bits([0,0]), 1)
+l01 = LeafNode(Bits([0,1]), 3)
 
-        else:
-            raise SerializerTypeError('bad class')
+i0 = InnerNode(l00, l01)
 
-    @classmethod
-    def ctx_deserialize(cls, ctx):
-        i = ctx.read_varuint()
+i1 = InnerNode(LeafNode(Bits([1,0]), 5),
+               LeafNode(Bits([1,1]), 7))
 
-        try:
-            union_cls = cls.UNION_CLASSES[i]
-        except IndexError:
-            # FIXME: nicer error message
-            raise DeserializationError('bad union class number %d' % i)
+i = InnerNode(i0, i1)
 
-        return union_cls.ctx_deserialize(ctx)
+ip = i.prune()
+
+print(ip.hash)
+print(ip.left.left.value)
+
+import pdb; pdb.set_trace()
